@@ -408,6 +408,9 @@ class RepoProfile(ABC, metaclass=SingletonMeta):
 
     def clone(self, dest: str | None = None) -> tuple[str, bool]:
         """Clone repository locally"""
+        dest = self.repo_name if not dest else dest
+        if os.path.exists(dest):
+            return dest, True
         if not self._mirror_exists():
             raise ValueError(
                 "Mirror clone repo must be created first (call .create_mirror)"

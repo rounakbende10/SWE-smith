@@ -4091,6 +4091,68 @@ CMD ["/bin/bash"]"""
         return parse_log_jest(log)
 
 
+import os
+import subprocess
+import shutil
+
+RH_GH_ORG_TS = "rounakbende10"
+
+
+@dataclass
+class OpenshiftConsole13eb35aa(TypeScriptProfile):
+    """openshift/console — OpenShift Web Console.
+
+    Core OpenShift UI. TypeScript/React with Jest tests.
+    """
+
+    owner: str = "openshift"
+    repo: str = "console"
+    commit: str = "13eb35aa"
+    org_gh: str = RH_GH_ORG_TS
+    test_cmd: str = "npx jest --no-cache --verbose"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM node:22-bookworm
+RUN apt-get update -qq && apt-get install -y -qq git && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/{self.mirror_name} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN yarn install --frozen-lockfile || npm install
+"""
+
+    def log_parser(self, log: str) -> dict[str, str]:
+        return parse_log_jest(log)
+
+    def create_mirror(self):
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 # Register all TypeScript profiles with the global registry
 for name, obj in list(globals().items()):
     if (

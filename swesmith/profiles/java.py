@@ -3328,6 +3328,69 @@ CMD ["/bin/bash"]"""
         return parse_log_gradle_junit_xml(log)
 
 
+import os
+import subprocess
+import shutil
+
+RH_GH_ORG_JAVA = "rounakbende10"
+
+
+@dataclass
+class KeycloakCe12c718(JavaProfile):
+    """keycloak/keycloak — Red Hat SSO / RHBK.
+
+    Identity and access management. Java with Maven.
+    Target server-spi module for self-contained unit tests.
+    """
+
+    owner: str = "keycloak"
+    repo: str = "keycloak"
+    commit: str = "ce12c718"
+    org_gh: str = RH_GH_ORG_JAVA
+    test_cmd: str = "mvn test -B -pl server-spi -Dsurefire.useFile=false -Dsurefire.printSummary=true -Dsurefire.reportFormat=plain"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM maven:3.9.6-eclipse-temurin-17
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/{self.mirror_name} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN mvn clean install -B -q -DskipTests -pl server-spi -am
+CMD ["/bin/bash"]"""
+
+    def log_parser(self, log: str) -> dict[str, str]:
+        return parse_log_maven_surefire(log)
+
+    def create_mirror(self):
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 for name, obj in list(globals().items()):
     if (
         isinstance(obj, type)

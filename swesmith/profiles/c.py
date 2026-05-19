@@ -111,6 +111,81 @@ RUN make
         return test_status_map
 
 
+import os
+import subprocess
+import shutil
+
+RH_GH_ORG_C = "rounakbende10"
+
+
+@dataclass
+class Systemd1006535b(CProfile):
+    """systemd/systemd — RHEL init system and service manager.
+
+    Core RHEL component. C codebase with meson build system.
+    Tests via meson test. Some tests are self-contained unit tests.
+    """
+
+    owner: str = "systemd"
+    repo: str = "systemd"
+    commit: str = "1006535b"
+    org_gh: str = RH_GH_ORG_C
+    test_cmd: str = "meson test -C build --no-rebuild --print-errorlogs --timeout-multiplier=3"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y git meson ninja-build gcc pkg-config \
+    libcap-dev libmount-dev libseccomp-dev libblkid-dev libkmod-dev \
+    gperf python3-jinja2 libglib2.0-dev liblz4-dev libzstd-dev \
+    libfdisk-dev libp11-kit-dev libssl-dev libgcrypt20-dev && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/{self.mirror_name} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN meson setup build -Dtests=true || true
+"""
+
+    def log_parser(self, log: str) -> dict[str, str]:
+        test_status_map = {}
+        for line in log.split("\n"):
+            if "OK" in line and "::" in line:
+                test_name = line.split("::")[0].strip().split()[-1]
+                test_status_map[test_name] = "PASSED"
+            elif "FAIL" in line and "::" in line:
+                test_name = line.split("::")[0].strip().split()[-1]
+                test_status_map[test_name] = "FAILED"
+        return test_status_map
+
+    def create_mirror(self):
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 # Register all C profiles with the global registry
 for name, obj in list(globals().items()):
     if (

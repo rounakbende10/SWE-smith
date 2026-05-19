@@ -66,10 +66,10 @@ def main(
 ):
     configs = yaml.safe_load(open(config_file))
     rp = registry.get(repo)
-    rp.clone()
 
     print(f"Extracting entities from {repo}...")
     candidates = rp.extract_entities()
+    rp.clone()
     if max_bugs:
         random.shuffle(candidates)
         candidates = candidates[:max_bugs]

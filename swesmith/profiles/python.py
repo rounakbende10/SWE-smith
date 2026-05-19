@@ -1348,6 +1348,443 @@ class String2Stringc4a72f59(PythonProfile):
     )
 
 
+# ──────────────────────────────────────────────────────────
+# Red Hat Python Profiles
+# ──────────────────────────────────────────────────────────
+
+RH_GH_ORG_PY = "rounakbende10"
+
+
+@dataclass
+class AnsibleA5b61bc6(PythonProfile):
+    """ansible/ansible — IT automation platform.
+
+    Core Red Hat product. Massive Python codebase with extensive unit tests.
+    Uses ansible-test for running tests, but pytest works for unit tests too.
+    """
+
+    owner: str = "ansible"
+    repo: str = "ansible"
+    commit: str = "a5b61bc6e1a0357713e12d32c95765e7b2e1b9a0"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(
+        default_factory=lambda: [
+            "pip install -e .",
+            "pip install pytest",
+        ]
+    )
+    test_cmd: str = (
+        "source /opt/miniconda3/bin/activate; "
+        f"conda activate {ENV_NAME}; "
+        "pytest --disable-warnings --color=no --tb=no --verbose "
+        "test/units/"
+    )
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    def create_mirror(self):
+        """Create mirror under personal account (not org)."""
+        import os
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            import shutil
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private
+        )
+
+        self._configure_ssh_env()
+        import subprocess
+        subprocess.run(
+            f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+        git_cmds = [
+            f"cd {self.repo_name}",
+            f"git checkout {self.commit}",
+            "rm -rf .git",
+            "git init",
+            'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"',
+            "rm -rf .github/workflows",
+            "rm -rf .github/dependabot.y*",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true",
+            "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'",
+            "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main",
+        ]
+
+        subprocess.run(
+            "; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+
+@dataclass
+class AnsibleLintAd4f3ffd(PythonProfile):
+    """ansible/ansible-lint — Ansible linting tool.
+
+    Self-contained pytest tests. Core Ansible ecosystem tool.
+    """
+
+    owner: str = "ansible"
+    repo: str = "ansible-lint"
+    commit: str = "ad4f3ffd"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(
+        default_factory=lambda: [
+            "pip install -e '.[test]'",
+        ]
+    )
+    test_cmd: str = (
+        "source /opt/miniconda3/bin/activate; "
+        f"conda activate {ENV_NAME}; "
+        "pytest --disable-warnings --color=no --tb=no --verbose "
+        "src/ansiblelint/ tests/"
+    )
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    def create_mirror(self):
+        """Create mirror under personal account."""
+        import os, subprocess, shutil
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private
+        )
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@dataclass
+class Molecule5e8051db(PythonProfile):
+    """ansible/molecule — Ansible testing framework.
+
+    Self-contained tox/pytest tests. Tests Ansible role development.
+    """
+
+    owner: str = "ansible"
+    repo: str = "molecule"
+    commit: str = "5e8051db"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(
+        default_factory=lambda: [
+            "pip install -e '.[test]'",
+            "pip install pytest",
+        ]
+    )
+    test_cmd: str = (
+        "source /opt/miniconda3/bin/activate; "
+        f"conda activate {ENV_NAME}; "
+        "pytest --disable-warnings --color=no --tb=no --verbose "
+        "tests/"
+    )
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    def create_mirror(self):
+        """Create mirror under personal account."""
+        import os, subprocess, shutil
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private
+        )
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@dataclass
+class FirewalldE3644eb9(PythonProfile):
+    """firewalld/firewalld — RHEL firewall manager.
+
+    Core RHEL component. Python with pytest tests.
+    """
+
+    owner: str = "firewalld"
+    repo: str = "firewalld"
+    commit: str = "e3644eb9"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(
+        default_factory=lambda: [
+            "pip install -e .",
+            "pip install pytest",
+        ]
+    )
+    test_cmd: str = (
+        "source /opt/miniconda3/bin/activate; "
+        f"conda activate {ENV_NAME}; "
+        "pytest --disable-warnings --color=no --tb=no --verbose "
+        "src/"
+    )
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    def create_mirror(self):
+        """Create mirror under personal account."""
+        import os, subprocess, shutil
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private
+        )
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@dataclass
+class Instructlab253a7a46(PythonProfile):
+    """instructlab/instructlab — RHEL AI training tool.
+
+    Red Hat's LLM fine-tuning platform. Python with pytest.
+    """
+
+    owner: str = "instructlab"
+    repo: str = "instructlab"
+    commit: str = "253a7a46"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(
+        default_factory=lambda: [
+            "pip install -e '.[dev]'",
+            "pip install pytest",
+        ]
+    )
+    test_cmd: str = (
+        "source /opt/miniconda3/bin/activate; "
+        f"conda activate {ENV_NAME}; "
+        "pytest --disable-warnings --color=no --tb=no --verbose "
+        "tests/"
+    )
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    def create_mirror(self):
+        import os, subprocess, shutil
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}",
+            "rm -rf .git", "git init", 'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@dataclass
+class AnsibleNavigatorAfcf9d04(PythonProfile):
+    """ansible/ansible-navigator — Ansible TUI/CLI tool."""
+    owner: str = "ansible"
+    repo: str = "ansible-navigator"
+    commit: str = "afcf9d04"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(default_factory=lambda: ["pip install -e '.[test]'", "pip install pytest"])
+    test_cmd: str = (f"source /opt/miniconda3/bin/activate; conda activate {ENV_NAME}; "
+                     "pytest --disable-warnings --color=no --tb=no --verbose tests/")
+    timeout: int = 300
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    def create_mirror(self):
+        import os, subprocess, shutil
+        if self._mirror_exists(): return
+        if self.repo_name in os.listdir(): shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}", "rm -rf .git", "git init",
+            'git config user.name "swesmith"', 'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .", "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true", "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git", "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@dataclass
+class OsbuildF312d0ac(PythonProfile):
+    """osbuild/osbuild — RHEL OS image builder."""
+    owner: str = "osbuild"
+    repo: str = "osbuild"
+    commit: str = "f312d0ac"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(default_factory=lambda: ["pip install -e .", "pip install pytest"])
+    test_cmd: str = (f"source /opt/miniconda3/bin/activate; conda activate {ENV_NAME}; "
+                     "pytest --disable-warnings --color=no --tb=no --verbose test/")
+    timeout: int = 300
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    def create_mirror(self):
+        import os, subprocess, shutil
+        if self._mirror_exists(): return
+        if self.repo_name in os.listdir(): shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}", "rm -rf .git", "git init",
+            'git config user.name "swesmith"', 'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .", "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true", "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git", "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@dataclass
+class Vllm6147c702(PythonProfile):
+    """vllm-project/vllm — RHEL AI inference engine."""
+    owner: str = "vllm-project"
+    repo: str = "vllm"
+    commit: str = "6147c702"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(default_factory=lambda: ["pip install -e .", "pip install pytest"])
+    test_cmd: str = (f"source /opt/miniconda3/bin/activate; conda activate {ENV_NAME}; "
+                     "pytest --disable-warnings --color=no --tb=no --verbose tests/")
+    timeout: int = 300
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    def create_mirror(self):
+        import os, subprocess, shutil
+        if self._mirror_exists(): return
+        if self.repo_name in os.listdir(): shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}", "rm -rf .git", "git init",
+            'git config user.name "swesmith"', 'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .", "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true", "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git", "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+
+
+@dataclass
+class InsightsCore5972bf28(PythonProfile):
+    """RedHatInsights/insights-core — Red Hat Insights analysis engine."""
+    owner: str = "RedHatInsights"
+    repo: str = "insights-core"
+    commit: str = "5972bf28"
+    org_gh: str = RH_GH_ORG_PY
+    python_version: str = "3.12"
+    install_cmds: list[str] = field(default_factory=lambda: ["pip install -e .", "pip install pytest"])
+    test_cmd: str = ("source /opt/miniconda3/bin/activate; conda activate testbed; "
+                     "pytest --disable-warnings --color=no --tb=no --verbose insights/tests/")
+    timeout: int = 300
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    def create_mirror(self):
+        import os, subprocess, shutil
+        if self._mirror_exists(): return
+        if self.repo_name in os.listdir(): shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(name=self.repo_name, private=source_repo.private)
+        self._configure_ssh_env()
+        subprocess.run(f"git clone {self._source_read_url} {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        git_cmds = [f"cd {self.repo_name}", f"git checkout {self.commit}", "rm -rf .git", "git init",
+            'git config user.name "swesmith"', 'git config user.email "swesmith@anon.com"', "rm -rf .github/workflows",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true", "git add .", "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true", "git commit --no-gpg-sign -m 'Initial commit'", "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git", "git push -u origin main"]
+        subprocess.run("; ".join(git_cmds), shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"rm -rf {self.repo_name}", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 # Register all Python profiles with the global registry
 for name, obj in list(globals().items()):
     if (

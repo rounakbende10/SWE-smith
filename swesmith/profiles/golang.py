@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import subprocess
 
 from dataclasses import dataclass, field
 from swebench.harness.constants import (
@@ -23,7 +24,8 @@ class GoProfile(RepoProfile):
     """
 
     exts: list[str] = field(default_factory=lambda: [".go"])
-    test_cmd: str = "go test -v ./..."
+    test_cmd: str = "go test -v -short -count=1 ./..."
+    timeout: int = 600  # 10 min — enough for large Go repos like kubectl
     _test_name_to_files_cache: dict[str, set[str]] = field(
         default=None, init=False, repr=False
     )
@@ -769,11 +771,662 @@ class Httptreemux(GoProfile):
     commit: str = "53a6a09954e8593e66a0c372335c0e96b318b920"
 
 
+# ──────────────────────────────────────────────────────────
+# Red Hat / Kubernetes Ecosystem Profiles
+# ──────────────────────────────────────────────────────────
+
+# Use personal GitHub account for mirror repos (no swesmith org admin access)
+RH_GH_ORG = "rounakbende10"
+
+
+@dataclass
+class RHGoProfile(GoProfile):
+    """Base profile for RH repos — creates mirrors under personal account."""
+
+    org_gh: str = RH_GH_ORG
+
+    def create_mirror(self):
+        """Create mirror under personal account (not org)."""
+        if self._mirror_exists():
+            return
+        if self.repo_name in os.listdir():
+            shutil.rmtree(self.repo_name)
+        source_repo = self.api.repos.get(self.owner, self.repo)
+        self.api.repos.create_for_authenticated_user(
+            name=self.repo_name, private=source_repo.private
+        )
+
+        self._configure_ssh_env()
+        subprocess.run(
+            f"git clone {self._source_read_url} {self.repo_name}",
+            shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+        git_cmds = [
+            f"cd {self.repo_name}",
+            f"git checkout {self.commit}",
+        ]
+        if os.path.exists(os.path.join(self.repo_name, ".gitmodules")):
+            git_cmds.append("git submodule update --init --recursive")
+
+        git_cmds.extend([
+            "rm -rf .git",
+            "git init",
+            'git config user.name "swesmith"',
+            'git config user.email "swesmith@anon.com"',
+            "rm -rf .github/workflows",
+            "rm -rf .github/dependabot.y*",
+            "mv .gitignore .gitignore.bak 2>/dev/null; true",
+            "git add .",
+            "mv .gitignore.bak .gitignore 2>/dev/null; true",
+            "git add -f .gitignore 2>/dev/null; true",
+            "git commit --no-gpg-sign -m 'Initial commit'",
+            "git branch -M main",
+            f"git remote add origin git@github.com:{self.mirror_name}.git",
+            "git push -u origin main",
+        ])
+
+        subprocess.run(
+            "; ".join(git_cmds), shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            f"rm -rf {self.repo_name}", shell=True, check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+
+@dataclass
+class ClientGo3aa3c779(RHGoProfile):
+    """Kubernetes client-go — the official Go client library for Kubernetes.
+
+    Pure Go, no CGO or C dependencies. Standard `go test` runs cleanly.
+    Tests use fakes/mocks, no real cluster needed.
+    """
+
+    owner: str = "kubernetes"
+    repo: str = "client-go"
+    commit: str = "3aa3c779a9ff2a3e2e59bd6a48dbf3108028be5a"
+    timeout: int = 180
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+
+@dataclass
+class Podman5b263b5f(RHGoProfile):
+    """containers/podman — container management tool.
+
+    Needs C library dev packages for seccomp, gpgme, etc.
+    Unit tests run via `go test` (Ginkgo). Integration tests skipped.
+    """
+
+    owner: str = "containers"
+    repo: str = "podman"
+    commit: str = "5b263b5f4acf51cd67edc0df41bfcf4c59e83ba9"
+    test_cmd: str = "go test -v -short -tags 'seccomp apparmor' -count=1 ./pkg/... ./libpod/... ./cmd/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc make pkg-config git \\
+    libgpgme-dev libassuan-dev libgpg-error-dev \\
+    libseccomp-dev libdevmapper-dev \\
+    libglib2.0-dev libbtrfs-dev \\
+    libsystemd-dev libselinux1-dev \\
+    libapparmor-dev libudev-dev \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class OperatorSdk6001c290(RHGoProfile):
+    """operator-framework/operator-sdk — build Kubernetes Operators.
+
+    Minimal C deps (CGO_ENABLED=1 for race detector).
+    Unit tests are self-contained; e2e tests need a cluster (skipped).
+    """
+
+    owner: str = "operator-framework"
+    repo: str = "operator-sdk"
+    commit: str = "6001c2905ead42f7b86ea43b5b40f9f6c5fb81d8"
+    test_cmd: str = "go test -v -tags containers_image_openpgp -short -count=1 ./internal/... ./pkg/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc make pkg-config git \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class OpenshiftOc345800dc(RHGoProfile):
+    """openshift/oc — the OpenShift command-line client.
+
+    Needs Kerberos dev headers for GSSAPI build tag.
+    """
+
+    owner: str = "openshift"
+    repo: str = "oc"
+    commit: str = "345800dc2d00f0bbfbda7d85c86c7adefe6d3c5e"
+    test_cmd: str = "go test -v -short -tags 'include_gcs include_oss containers_image_openpgp gssapi' -count=1 ./pkg/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc make pkg-config git \\
+    libgpgme-dev libassuan-dev \\
+    libkrb5-dev \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class CriO_d1e7bdc8(RHGoProfile):
+    """cri-o/cri-o — OCI-based container runtime for Kubernetes.
+
+    Heavy C deps (same containers/ stack as podman + extra).
+    Unit tests via `go test`; integration tests skipped.
+    """
+
+    owner: str = "cri-o"
+    repo: str = "cri-o"
+    commit: str = "d1e7bdc86b36a26c4febe3a25e73e65d1cc4e95a"
+    test_cmd: str = "go test -v -short -tags 'containers_image_ostree_stub apparmor seccomp selinux' -count=1 ./internal/... ./pkg/... ./server/... ./utils/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc make pkg-config git \\
+    libgpgme-dev libassuan-dev libgpg-error-dev \\
+    libseccomp-dev libdevmapper-dev \\
+    libglib2.0-dev libbtrfs-dev \\
+    libsystemd-dev libselinux1-dev \\
+    libapparmor-dev libudev-dev \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class Buildah310b1c8f(RHGoProfile):
+    """containers/buildah — OCI image builder.
+
+    Same C dep stack as podman. 53 test files.
+    """
+
+    owner: str = "containers"
+    repo: str = "buildah"
+    commit: str = "310b1c8f82a73e42139df0eff29c5f97a6a6f90b"
+    test_cmd: str = "go test -v -short -tags 'seccomp apparmor' -count=1 ./..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc make pkg-config git \\
+    libgpgme-dev libassuan-dev libgpg-error-dev \\
+    libseccomp-dev libdevmapper-dev \\
+    libglib2.0-dev libbtrfs-dev \\
+    libsystemd-dev libselinux1-dev \\
+    libapparmor-dev \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class Kubectl01cb18cd(RHGoProfile):
+    """kubernetes/kubectl — Kubernetes CLI tool.
+
+    Pure Go, staging repo synced from kubernetes/kubernetes.
+    """
+
+    owner: str = "kubernetes"
+    repo: str = "kubectl"
+    commit: str = "01cb18cd0df4c1f8283bb67bd24a0a0c8083d893"
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class Apimachinery7af103a2(RHGoProfile):
+    """kubernetes/apimachinery — K8s API machinery library.
+
+    Pure Go, core types and serialization used by all K8s components.
+    """
+
+    owner: str = "kubernetes"
+    repo: str = "apimachinery"
+    commit: str = "7af103a2ce8eac1f6e78e6053dcf394c4a1f0b5d"
+    timeout: int = 180
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class KubernetesApi25001c85(RHGoProfile):
+    """kubernetes/api — K8s API types.
+
+    Pure Go type definitions used across the entire K8s ecosystem.
+    """
+
+    owner: str = "kubernetes"
+    repo: str = "api"
+    commit: str = "25001c85e0c4db1f6b9c3f21f0c5b85a2e7e0d52"
+    timeout: int = 180
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class Etcd_ec166e22(RHGoProfile):
+    """etcd-io/etcd — distributed key-value store for K8s.
+
+    Core infrastructure for Kubernetes. CGO_ENABLED=0.
+    """
+
+    owner: str = "etcd-io"
+    repo: str = "etcd"
+    commit: str = "ec166e22a8acb91be05d0e430f7c3e88f5fceb6e"
+    test_cmd: str = "go test -v -short -count=1 ./client/... ./server/etcdserver/... ./pkg/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class Prometheus_eb173f52(RHGoProfile):
+    """prometheus/prometheus — monitoring system.
+
+    Core observability for OpenShift/K8s. Pure Go.
+    """
+
+    owner: str = "prometheus"
+    repo: str = "prometheus"
+    commit: str = "eb173f52ca1ced4a989e2e6e1b2ac49e29e89e9a"
+    test_cmd: str = "go test -v -short -count=1 ./model/... ./promql/... ./storage/... ./config/... ./discovery/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class TektonPipeline77985582(RHGoProfile):
+    """tektoncd/pipeline — cloud-native CI/CD for K8s.
+
+    OpenShift Pipelines is built on Tekton. Pure Go, CGO_ENABLED=0.
+    """
+
+    owner: str = "tektoncd"
+    repo: str = "pipeline"
+    commit: str = "77985582c3f93e7e7d1eb506e7e1b5e8e0d52b35"
+    test_cmd: str = "go test -v -short -count=1 ./pkg/... ./internal/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class MachineConfigOperator7efcbbbc(RHGoProfile):
+    """openshift/machine-config-operator — manages RHCOS machine configs.
+
+    Core OpenShift operator. Pure Go, CGO_ENABLED=0.
+    """
+
+    owner: str = "openshift"
+    repo: str = "machine-config-operator"
+    commit: str = "7efcbbbc2b6f27d32abc87f07f0e2e22d2e2d1e5"
+    test_cmd: str = "go test -v -short -count=1 ./pkg/... ./internal/..."
+    timeout: int = 300
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.24
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc make pkg-config git \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod download
+"""
+
+
+@dataclass
+class ContainersImageDf7e80d2(RHGoProfile):
+    """containers/image — Go library for container images.
+
+    Core library used by podman, buildah, skopeo. Self-contained tests.
+    """
+
+    owner: str = "containers"
+    repo: str = "image"
+    commit: str = "df7e80d2"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN apt-get update -qq && apt-get install -y -qq gcc make pkg-config git \
+    libgpgme-dev libassuan-dev libbtrfs-dev libdevmapper-dev && rm -rf /var/lib/apt/lists/*
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class ContainersCommonA5ccdae8(RHGoProfile):
+    """containers/common — shared container libraries.
+
+    Common code used by podman, buildah, skopeo. Self-contained tests.
+    """
+
+    owner: str = "containers"
+    repo: str = "common"
+    commit: str = "a5ccdae8"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN apt-get update -qq && apt-get install -y -qq gcc make pkg-config git \
+    libgpgme-dev libassuan-dev libseccomp-dev libdevmapper-dev && rm -rf /var/lib/apt/lists/*
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class ContainersStorage83cf5746(RHGoProfile):
+    """containers/storage — container storage library.
+
+    Storage backend for podman/buildah. Self-contained tests.
+    """
+
+    owner: str = "containers"
+    repo: str = "storage"
+    commit: str = "83cf5746"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN apt-get update -qq && apt-get install -y -qq gcc make pkg-config git \
+    libgpgme-dev libbtrfs-dev libdevmapper-dev && rm -rf /var/lib/apt/lists/*
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class ClusterVersionOperatorE75b70ae(RHGoProfile):
+    """openshift/cluster-version-operator — manages OpenShift upgrades.
+
+    Core OpenShift operator. Pure Go, self-contained unit tests.
+    """
+
+    owner: str = "openshift"
+    repo: str = "cluster-version-operator"
+    commit: str = "e75b70ae"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class Crc0f9a2e10(RHGoProfile):
+    """crc-org/crc — CodeReady Containers (OpenShift Local).
+
+    Developer tool for running OpenShift locally. Go with self-contained unit tests.
+    """
+
+    owner: str = "crc-org"
+    repo: str = "crc"
+    commit: str = "0f9a2e10"
+    timeout: int = 600
+    eval_sets: set[str] = field(
+        default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
+    )
+
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+
+
+@dataclass
+class ArgoCd_a39953d2(RHGoProfile):
+    """argoproj/argo-cd — OpenShift GitOps."""
+    owner: str = "argoproj"
+    repo: str = "argo-cd"
+    commit: str = "a39953d2"
+    timeout: int = 600
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class CephCsi8cb6aeb2(RHGoProfile):
+    """ceph/ceph-csi — Red Hat ODF / Ceph CSI driver."""
+    owner: str = "ceph"
+    repo: str = "ceph-csi"
+    commit: str = "8cb6aeb2"
+    timeout: int = 600
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+
+@dataclass
+class Kubevirt_e32822fe(RHGoProfile):
+    """kubevirt/kubevirt — OpenShift Virtualization."""
+    owner: str = "kubevirt"
+    repo: str = "kubevirt"
+    commit: str = "e32822fe"
+    timeout: int = 600
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class Ocm_a5c22a2b(RHGoProfile):
+    """open-cluster-management-io/ocm — Red Hat ACM."""
+    owner: str = "open-cluster-management-io"
+    repo: str = "ocm"
+    commit: str = "a5c22a2b"
+    timeout: int = 600
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
+
+@dataclass
+class Stackrox_d192685c(RHGoProfile):
+    """stackrox/stackrox — Red Hat ACS (container security)."""
+    owner: str = "stackrox"
+    repo: str = "stackrox"
+    commit: str = "d192685c"
+    timeout: int = 600
+    eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
+    @property
+    def dockerfile(self):
+        return f"""FROM golang:1.26
+RUN git clone {self.mirror_url} /{ENV_NAME}
+WORKDIR /{ENV_NAME}
+RUN go mod tidy
+"""
+
 # Register all Go profiles with the global registry
 for name, obj in list(globals().items()):
     if (
         isinstance(obj, type)
         and issubclass(obj, GoProfile)
-        and obj.__name__ != "GoProfile"
+        and obj.__name__ not in ("GoProfile", "RHGoProfile")
     ):
         registry.register_profile(obj)
