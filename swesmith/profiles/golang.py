@@ -848,7 +848,7 @@ class ClientGo3aa3c779(RHGoProfile):
     owner: str = "kubernetes"
     repo: str = "client-go"
     commit: str = "3aa3c779a9ff2a3e2e59bd6a48dbf3108028be5a"
-    timeout: int = 180
+    timeout: int = 600
 
     @property
     def dockerfile(self):
@@ -874,7 +874,7 @@ class Podman5b263b5f(RHGoProfile):
     repo: str = "podman"
     commit: str = "5b263b5f4acf51cd67edc0df41bfcf4c59e83ba9"
     test_cmd: str = "go test -v -short -tags 'seccomp apparmor' -count=1 ./pkg/... ./libpod/... ./cmd/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -910,7 +910,7 @@ class OperatorSdk6001c290(RHGoProfile):
     repo: str = "operator-sdk"
     commit: str = "6001c2905ead42f7b86ea43b5b40f9f6c5fb81d8"
     test_cmd: str = "go test -v -tags containers_image_openpgp -short -count=1 ./internal/... ./pkg/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -940,7 +940,7 @@ class OpenshiftOc345800dc(RHGoProfile):
     repo: str = "oc"
     commit: str = "345800dc2d00f0bbfbda7d85c86c7adefe6d3c5e"
     test_cmd: str = "go test -v -short -tags 'include_gcs include_oss containers_image_openpgp gssapi' -count=1 ./pkg/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -973,7 +973,7 @@ class CriO_d1e7bdc8(RHGoProfile):
     repo: str = "cri-o"
     commit: str = "d1e7bdc86b36a26c4febe3a25e73e65d1cc4e95a"
     test_cmd: str = "go test -v -short -tags 'containers_image_ostree_stub apparmor seccomp selinux' -count=1 ./internal/... ./pkg/... ./server/... ./utils/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1008,7 +1008,7 @@ class Buildah310b1c8f(RHGoProfile):
     repo: str = "buildah"
     commit: str = "310b1c8f82a73e42139df0eff29c5f97a6a6f90b"
     test_cmd: str = "go test -v -short -tags 'seccomp apparmor' -count=1 ./..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1042,7 +1042,7 @@ class Kubectl01cb18cd(RHGoProfile):
     owner: str = "kubernetes"
     repo: str = "kubectl"
     commit: str = "01cb18cd0df4c1f8283bb67bd24a0a0c8083d893"
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1066,7 +1066,7 @@ class Apimachinery7af103a2(RHGoProfile):
     owner: str = "kubernetes"
     repo: str = "apimachinery"
     commit: str = "7af103a2ce8eac1f6e78e6053dcf394c4a1f0b5d"
-    timeout: int = 180
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1090,7 +1090,7 @@ class KubernetesApi25001c85(RHGoProfile):
     owner: str = "kubernetes"
     repo: str = "api"
     commit: str = "25001c85e0c4db1f6b9c3f21f0c5b85a2e7e0d52"
-    timeout: int = 180
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1115,7 +1115,7 @@ class Etcd_ec166e22(RHGoProfile):
     repo: str = "etcd"
     commit: str = "ec166e22a8acb91be05d0e430f7c3e88f5fceb6e"
     test_cmd: str = "go test -v -short -count=1 ./client/... ./server/etcdserver/... ./pkg/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1140,7 +1140,7 @@ class Prometheus_eb173f52(RHGoProfile):
     repo: str = "prometheus"
     commit: str = "eb173f52ca1ced4a989e2e6e1b2ac49e29e89e9a"
     test_cmd: str = "go test -v -short -count=1 ./model/... ./promql/... ./storage/... ./config/... ./discovery/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1165,7 +1165,7 @@ class TektonPipeline77985582(RHGoProfile):
     repo: str = "pipeline"
     commit: str = "77985582c3f93e7e7d1eb506e7e1b5e8e0d52b35"
     test_cmd: str = "go test -v -short -count=1 ./pkg/... ./internal/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1190,7 +1190,7 @@ class MachineConfigOperator7efcbbbc(RHGoProfile):
     repo: str = "machine-config-operator"
     commit: str = "7efcbbbc2b6f27d32abc87f07f0e2e22d2e2d1e5"
     test_cmd: str = "go test -v -short -count=1 ./pkg/... ./internal/..."
-    timeout: int = 300
+    timeout: int = 600
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
