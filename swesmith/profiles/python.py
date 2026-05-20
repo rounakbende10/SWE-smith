@@ -1380,7 +1380,7 @@ class AnsibleA5b61bc6(PythonProfile):
         "pytest --disable-warnings --color=no --tb=no --verbose "
         "test/units/"
     )
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1458,7 +1458,7 @@ class AnsibleLintAd4f3ffd(PythonProfile):
         "pytest --disable-warnings --color=no --tb=no --verbose "
         "src/ansiblelint/ tests/"
     )
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1516,7 +1516,7 @@ class Molecule5e8051db(PythonProfile):
         "pytest --disable-warnings --color=no --tb=no --verbose "
         "tests/"
     )
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1574,7 +1574,7 @@ class FirewalldE3644eb9(PythonProfile):
         "pytest --disable-warnings --color=no --tb=no --verbose "
         "src/"
     )
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1632,7 +1632,7 @@ class Instructlab253a7a46(PythonProfile):
         "pytest --disable-warnings --color=no --tb=no --verbose "
         "tests/"
     )
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(
         default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"}
     )
@@ -1675,7 +1675,7 @@ class AnsibleNavigatorAfcf9d04(PythonProfile):
     install_cmds: list[str] = field(default_factory=lambda: ["pip install -e '.[test]'", "pip install pytest"])
     test_cmd: str = (f"source /opt/miniconda3/bin/activate; conda activate {ENV_NAME}; "
                      "pytest --disable-warnings --color=no --tb=no --verbose tests/")
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
     def create_mirror(self):
         import os, subprocess, shutil
@@ -1705,7 +1705,7 @@ class OsbuildF312d0ac(PythonProfile):
     install_cmds: list[str] = field(default_factory=lambda: ["pip install -e .", "pip install pytest"])
     test_cmd: str = (f"source /opt/miniconda3/bin/activate; conda activate {ENV_NAME}; "
                      "pytest --disable-warnings --color=no --tb=no --verbose test/")
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
     def create_mirror(self):
         import os, subprocess, shutil
@@ -1735,7 +1735,7 @@ class Vllm6147c702(PythonProfile):
     install_cmds: list[str] = field(default_factory=lambda: ["pip install -e .", "pip install pytest"])
     test_cmd: str = (f"source /opt/miniconda3/bin/activate; conda activate {ENV_NAME}; "
                      "pytest --disable-warnings --color=no --tb=no --verbose tests/")
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
     def create_mirror(self):
         import os, subprocess, shutil
@@ -1767,7 +1767,7 @@ class InsightsCore5972bf28(PythonProfile):
     install_cmds: list[str] = field(default_factory=lambda: ["pip install -e .", "pip install pytest"])
     test_cmd: str = ("source /opt/miniconda3/bin/activate; conda activate testbed; "
                      "pytest --disable-warnings --color=no --tb=no --verbose insights/tests/")
-    timeout: int = 600
+    timeout: int = 1800
     eval_sets: set[str] = field(default_factory=lambda: {"SWE-bench/SWE-bench_RedHat"})
     def create_mirror(self):
         import os, subprocess, shutil

@@ -1,0 +1,13 @@
+name: testbed
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+    - pytest
+    - pytest-mock
+    - pyyaml
+    - jinja2
+    - mako

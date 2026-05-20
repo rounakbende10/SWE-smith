@@ -7,8 +7,14 @@
 .claude/
 hidden/
 logs/
+!logs/build_images/
+!logs/build_images/env/
+!logs/build_images/env/*/
+!logs/build_images/env/*/sweenv_*.yml
+!logs/build_images/env/*/sweenv_*.sh
 notebooks/
 repos/
+redhat-bench/_deprecated/
 
 # General python
 
