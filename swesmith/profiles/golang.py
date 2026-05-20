@@ -32,7 +32,7 @@ class GoProfile(RepoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 RUN git clone {self.mirror_url} /{ENV_NAME}
 WORKDIR /{ENV_NAME}
 RUN go mod tidy
@@ -344,7 +344,7 @@ class BoomFilters(GoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 RUN git clone https://github.com/{self.mirror_name} /{ENV_NAME}
 WORKDIR /{ENV_NAME}
 RUN go mod init github.com/tylertreat/BoomFilters
@@ -360,7 +360,7 @@ class Ini(GoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 RUN git clone https://github.com/{self.mirror_name} /{ENV_NAME}
 WORKDIR /{ENV_NAME}
 RUN go mod init github.com/go-ini/ini
@@ -616,7 +616,7 @@ class Sqlingo(GoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 RUN git clone https://github.com/{self.mirror_name} /{ENV_NAME}
 WORKDIR /{ENV_NAME}
 RUN go mod init github.com/lqs/sqlingo
@@ -881,7 +881,7 @@ class Podman5b263b5f(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     gcc make pkg-config git \\
@@ -917,7 +917,7 @@ class OperatorSdk6001c290(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     gcc make pkg-config git \\
@@ -947,7 +947,7 @@ class OpenshiftOc345800dc(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     gcc make pkg-config git \\
@@ -980,7 +980,7 @@ class CriO_d1e7bdc8(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     gcc make pkg-config git \\
@@ -1015,7 +1015,7 @@ class Buildah310b1c8f(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     gcc make pkg-config git \\
@@ -1147,7 +1147,7 @@ class Prometheus_eb173f52(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 RUN git clone {self.mirror_url} /{ENV_NAME}
 WORKDIR /{ENV_NAME}
 RUN go mod download
@@ -1172,7 +1172,7 @@ class TektonPipeline77985582(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 RUN git clone {self.mirror_url} /{ENV_NAME}
 WORKDIR /{ENV_NAME}
 RUN go mod download
@@ -1197,7 +1197,7 @@ class MachineConfigOperator7efcbbbc(RHGoProfile):
 
     @property
     def dockerfile(self):
-        return f"""FROM golang:1.24
+        return f"""FROM golang:1.26
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     gcc make pkg-config git \\
