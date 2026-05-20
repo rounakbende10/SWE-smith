@@ -1,0 +1,67 @@
+#!/bin/bash
+set -euxo pipefail
+git clone -o origin https://github.com/rounakbende10/RedHatInsights__insights-core.5972bf28 /testbed
+cd /testbed
+source /opt/miniconda3/bin/activate
+cat <<'EOF_59812759871' > swesmith_environment.yml
+name: testbed
+channels:
+  - conda-forge
+dependencies:
+  - _openmp_mutex=4.5=20_gnu
+  - bzip2=1.0.8=hda65f42_9
+  - ca-certificates=2026.4.22=hbd8a1cb_0
+  - ld_impl_linux-64=2.45.1=default_hbd61a6d_102
+  - libexpat=2.8.0=hecca717_0
+  - libffi=3.5.2=h3435931_0
+  - libgcc=15.2.0=he0feb66_19
+  - libgcc-ng=15.2.0=h69a702a_19
+  - libgomp=15.2.0=he0feb66_19
+  - liblzma=5.8.3=hb03c661_0
+  - libnsl=2.0.1=hb9d3cd8_1
+  - libsqlite=3.53.1=h0c1763c_0
+  - libuuid=2.42.1=h5347b49_0
+  - libxcrypt=4.4.36=hd590300_1
+  - libzlib=1.3.2=h25fd6f3_2
+  - ncurses=6.6=hdb14827_0
+  - openssl=3.6.2=h35e630c_0
+  - packaging=26.2=pyhc364b38_0
+  - pip=26.1.1=pyh8b19718_0
+  - python=3.12.13=hd63d673_0_cpython
+  - readline=8.3=h853b02a_0
+  - setuptools=82.0.1=pyh332efcf_0
+  - tk=8.6.13=noxft_h366c992_103
+  - tzdata=2025c=hc9c84f9_1
+  - wheel=0.47.0=pyhd8ed1ab_0
+  - zstd=1.5.7=hb78ec9c_6
+  - pip:
+      - cachecontrol==0.14.4
+      - certifi==2026.4.22
+      - charset-normalizer==3.4.7
+      - defusedxml==0.7.1
+      - filelock==3.29.0
+      - idna==3.15
+      - iniconfig==2.3.0
+      - jinja2==3.1.6
+      - lockfile==0.12.2
+      - markupsafe==3.0.3
+      - msgpack==1.1.2
+      - pluggy==1.6.0
+      - pygments==2.20.0
+      - pytest==9.0.3
+      - pytest-mock==3.15.1
+      - pyyaml==6.0.3
+      - redis==7.4.0
+      - requests==2.34.2
+      - rpm==0.4.0
+      - urllib3==2.7.0
+prefix: /opt/conda/envs/testbed
+
+EOF_59812759871
+conda env create --file swesmith_environment.yml
+conda activate testbed && conda install python=3.12 -y
+rm swesmith_environment.yml
+conda activate testbed
+echo "Current environment: $CONDA_DEFAULT_ENV"
+pip install -e .
+pip install pytest

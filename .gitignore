@@ -12,6 +12,8 @@ logs/
 !logs/build_images/env/*/
 !logs/build_images/env/*/sweenv_*.yml
 !logs/build_images/env/*/sweenv_*.sh
+!logs/build_images/env/*/Dockerfile
+!logs/build_images/env/*/setup_env.sh
 notebooks/
 repos/
 redhat-bench/_deprecated/
