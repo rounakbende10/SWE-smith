@@ -1672,8 +1672,9 @@ class Quarkus99a220ef(JavaProfile):
     owner: str = "quarkusio"
     repo: str = "quarkus"
     commit: str = "99a220efc4ca53cc5b9d4bb460bf8b97702891bd"
+    org_gh: str = "rounakbende10"
     test_cmd: str = "mvn test -B -pl independent-projects/arc/runtime -Dsurefire.useFile=false -Dsurefire.printSummary=true -Dsurefire.reportFormat=plain"
-    timeout: int = 400  # Maven tests can be slow
+    timeout: int = 600
 
     @property
     def dockerfile(self):
