@@ -200,3 +200,10 @@ pyrightconfig.json
 uv.lock
 .vscode/
 .env
+
+# Cloned repos from lm_rewrite (temporary, auto-deleted)
+*__*.*/
+!logs/
+
+# Harbor adapter (separate project)
+harbor-adapter/
