@@ -3,7 +3,7 @@
 SWE-bench style benchmark from Red Hat / Kubernetes ecosystem repos. Two approaches for generating instances:
 
 1. **SWE-Smith synthetic bugs** — LLM rewrites, AST mutations, multi-file combinations validated against test suites
-2. **Real PR pipeline** (`v3_pipeline/`) — Instances from actual merged bug-fix PRs, no SWE-Smith profiles needed
+2. **Real PR pipeline** (`pr_pipeline/`) — Instances from actual merged bug-fix PRs, no SWE-Smith profiles needed
 
 **Dataset**: [huggingface.co/datasets/rounakbende/rh-swe-bench](https://huggingface.co/datasets/rounakbende/rh-swe-bench)
 
@@ -95,10 +95,10 @@ delete <pod-name>                               Delete pod + PVC
 
 ## Approach 2: Real PR Pipeline
 
-Creates instances from actual merged PRs. No SWE-Smith profiles needed — works for any repo with a test suite. See [`v3_pipeline/README.md`](v3_pipeline/README.md) for detailed usage.
+Creates instances from actual merged PRs. No SWE-Smith profiles needed — works for any repo with a test suite. See [`pr_pipeline/README.md`](pr_pipeline/README.md) for detailed usage.
 
 ```bash
-cd redhat-bench/v3_pipeline
+cd redhat-bench/pr_pipeline
 
 # 1. Collect PRs with test changes
 export GITHUB_TOKEN=$(gh auth token)
@@ -191,7 +191,7 @@ redhat-bench/
   deploy_validation.sh      # NERC pod deployment + management
   verify_dataset.py         # LLM-based quality verification
   harbor-adapter/           # Harbor format converter
-  v3_pipeline/              # Real PR validation pipeline
+  pr_pipeline/              # Real PR validation pipeline
     README.md
     collect_prs.py          # Step 1: Scrape PRs from GitHub
     validate_prs.py         # Step 2: Per-commit Docker validation

@@ -22,7 +22,7 @@ pip install swesmith docker unidiff requests openai
 ## Quick start
 
 ```bash
-cd redhat-bench/v3_pipeline
+cd redhat-bench/pr_pipeline
 
 # 1. Collect PRs (edit repos.json or create your own)
 export GITHUB_TOKEN=$(gh auth token)
