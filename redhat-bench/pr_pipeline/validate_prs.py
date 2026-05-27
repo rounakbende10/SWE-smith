@@ -40,8 +40,8 @@ LANG_CONFIG = {
     },
     "python": {
         "base_image": "python:3.12-bookworm",
-        "install_cmd": 'pip install -e ".[test,dev]" 2>/dev/null || pip install -e ".[test]" 2>/dev/null || pip install -e . 2>/dev/null || true',
-        "test_cmd": "pytest --disable-warnings --color=no --tb=no --verbose",
+        "install_cmd": '([ -d /pkgs ] && pip install --no-index --find-links=/pkgs -e ".[test,dev,testing,develop]" 2>/dev/null || pip install -e ".[test,dev,testing,develop]" 2>/dev/null || pip install -e . 2>/dev/null || true)',
+        "test_cmd": "python -m pytest --disable-warnings --color=no --tb=no --verbose",
     },
     "java": {
         "base_image": "maven:3.9.6-eclipse-temurin-17",
@@ -73,10 +73,16 @@ def parse_pytest_log(log):
 def parse_maven_log(log):
     sm = {}
     for line in log.split("\n"):
-        m = re.match(r"Tests run: (\d+), Failures: (\d+), Errors: (\d+)", line)
+        m = re.match(r".*Tests run: (\d+), Failures: (\d+), Errors: (\d+).*-- in (\S+)", line)
         if m:
-            total, failures, errors = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            sm["maven_tests"] = "FAILED" if (failures > 0 or errors > 0) else "PASSED"
+            failures, errors = int(m.group(2)), int(m.group(3))
+            class_name = m.group(4)
+            sm[class_name] = "FAILED" if (failures > 0 or errors > 0) else "PASSED"
+    if not sm:
+        if "BUILD FAILURE" in log:
+            sm["build"] = "FAILED"
+        elif "BUILD SUCCESS" in log:
+            sm["build"] = "PASSED"
     return sm
 
 
@@ -101,9 +107,21 @@ def get_go_test_packages(test_patch, patch, base_cmd):
 
 # ── Core logic ──
 
-def build_image(owner, repo, commit, lang):
+try:
+    from auto_env import build_repo_image
+except ImportError:
+    build_repo_image = None
+
+
+def build_base_image(owner, repo, lang):
+    """Build a base image with deps installed. Reused across all PRs for the same repo."""
+    # For Python: use auto_env which handles dependency resolution offline
+    if lang == "python" and build_repo_image is not None:
+        docker_host = os.environ.get("DOCKER_HOST")
+        return build_repo_image(owner, repo, docker_host=docker_host)
+
     cfg = LANG_CONFIG[lang]
-    tag = f"v3-{owner}-{repo}:{commit[:8]}".lower()
+    tag = f"base-{owner}-{repo}".lower()
     client = docker.from_env(timeout=300)
     try:
         client.images.get(tag)
@@ -116,18 +134,58 @@ def build_image(owner, repo, commit, lang):
         f"RUN apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1 || true\n"
         f"RUN git clone https://github.com/{owner}/{repo} /testbed\n"
         f"WORKDIR /testbed\n"
-        f"RUN git checkout {commit}\n"
+        f"RUN {cfg['install_cmd']}\n"
+    )
+    df_path = f"/tmp/Dockerfile_base_{owner}_{repo}"
+    with open(df_path, "w") as f:
+        f.write(dockerfile)
+
+    build_timeout = 900 if lang == "java" else 600
+    print(f"    Building base image for {owner}/{repo}...")
+    try:
+        r = subprocess.run(
+            f"docker build -f {df_path} --platform linux/x86_64 -t {tag} .",
+            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=build_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"    BASE BUILD TIMEOUT: {owner}/{repo}")
+        return None
+
+    if r.returncode == 0:
+        print(f"    Base image ready for {owner}/{repo}")
+        return tag
+    print(f"    BASE BUILD FAILED: {r.stderr[-200:]}")
+    return None
+
+
+def build_image(owner, repo, commit, lang):
+    """Build a per-commit image from the cached base image."""
+    cfg = LANG_CONFIG[lang]
+    tag = f"v3-{owner}-{repo}:{commit[:8]}".lower()
+    client = docker.from_env(timeout=300)
+    try:
+        client.images.get(tag)
+        return tag
+    except Exception:
+        pass
+
+    base_tag = build_base_image(owner, repo, lang)
+    if not base_tag:
+        return None
+
+    dockerfile = (
+        f"FROM {base_tag}\n"
+        f"RUN git checkout {commit} || (git fetch origin && git checkout {commit})\n"
         f"RUN {cfg['install_cmd']}\n"
     )
     df_path = f"/tmp/Dockerfile_v3_{commit[:8]}"
     with open(df_path, "w") as f:
         f.write(dockerfile)
 
-    build_timeout = 600 if lang == "java" else 300
     try:
         r = subprocess.run(
             f"docker build -f {df_path} --platform linux/x86_64 --no-cache -t {tag} .",
-            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=build_timeout,
+            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=120,
         )
     except subprocess.TimeoutExpired:
         print(f"    BUILD TIMEOUT: {owner}/{repo} at {commit[:8]}")
@@ -193,45 +251,82 @@ def validate_instance(inst, lang, output_dir, timeout=600):
         subprocess.run(f"docker cp {tp_f} {container.id}:/test_patch.diff", shell=True)
         subprocess.run(f"docker cp {fix_f} {container.id}:/fix_patch.diff", shell=True)
 
-        # Apply test_patch
-        applied = False
-        for cmd in ["git apply /test_patch.diff", "git apply --reject /test_patch.diff",
-                     "patch --batch --fuzz=5 -p1 -i /test_patch.diff"]:
-            if container.exec_run(cmd, workdir="/testbed").exit_code == 0:
-                applied = True
-                break
-        if not applied:
-            json.dump({"status": "test_patch_failed"}, open(rpt, "w"), indent=2)
-            print(f"  [FAIL] PR#{pr}: test_patch failed")
-            return None
+        # For Java: test code may depend on fix code (same compilation unit).
+        # Strategy: apply BOTH patches first (fixed state), run tests.
+        # Then revert fix only (buggy state), run tests again.
+        if lang == "java":
+            # Apply both patches (fixed state first)
+            for diff_file, label in [("/test_patch.diff", "test_patch"), ("/fix_patch.diff", "fix")]:
+                applied = False
+                for cmd in [f"git apply {diff_file}", f"git apply --reject {diff_file}",
+                             f"patch --batch --fuzz=5 -p1 -i {diff_file}"]:
+                    if container.exec_run(cmd, workdir="/testbed").exit_code == 0:
+                        applied = True
+                        break
+                if not applied:
+                    json.dump({"status": f"{label}_failed"}, open(rpt, "w"), indent=2)
+                    print(f"  [FAIL] PR#{pr}: {label} failed")
+                    return None
 
-        # Run tests (buggy state — should have failures)
-        eval_script = f"#!/bin/bash\nset -uxo pipefail\ncd /testbed\n: '{TEST_OUTPUT_START}'\n{test_cmd}\n: '{TEST_OUTPUT_END}'\n"
-        with open(ev_f, "w") as f:
-            f.write(eval_script)
-        subprocess.run(f"docker cp {ev_f} {container.id}:/eval.sh", shell=True)
+            eval_script = f"#!/bin/bash\nset -uxo pipefail\ncd /testbed\n: '{TEST_OUTPUT_START}'\n{test_cmd}\n: '{TEST_OUTPUT_END}'\n"
+            with open(ev_f, "w") as f:
+                f.write(eval_script)
+            subprocess.run(f"docker cp {ev_f} {container.id}:/eval.sh", shell=True)
 
-        buggy_out, bto, _ = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=timeout)
-        (log_dir / "test_output.txt").write_text(buggy_out)
-        if bto:
-            json.dump({"timed_out": True, "timeout": timeout}, open(rpt, "w"), indent=2)
-            print(f"  [FAIL] PR#{pr}: timed out")
-            return None
+            # Run tests in fixed state (should pass)
+            clean_out, cto, _ = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=timeout)
+            (log_dir / "test_output_clean.txt").write_text(clean_out)
 
-        # Apply fix patch
-        applied = False
-        for cmd in ["git apply /fix_patch.diff", "git apply --reject /fix_patch.diff",
-                     "patch --batch --fuzz=5 -p1 -i /fix_patch.diff"]:
-            if container.exec_run(cmd, workdir="/testbed").exit_code == 0:
-                applied = True
-                break
-        if not applied:
-            json.dump({"status": "fix_failed"}, open(rpt, "w"), indent=2)
-            print(f"  [FAIL] PR#{pr}: fix failed")
-            return None
+            # Revert fix only (back to buggy state with tests still present)
+            container.exec_run("git checkout -- .", workdir="/testbed")
+            for cmd in [f"git apply /test_patch.diff", f"patch --batch --fuzz=5 -p1 -i /test_patch.diff"]:
+                if container.exec_run(cmd, workdir="/testbed").exit_code == 0:
+                    break
 
-        # Run tests again (fixed state — should pass)
-        clean_out, cto, _ = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=timeout)
+            # Run tests in buggy state (should fail)
+            buggy_out, bto, _ = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=timeout)
+            (log_dir / "test_output.txt").write_text(buggy_out)
+        else:
+            # Go/Python: test code is independent, original flow works
+            # Apply test_patch
+            applied = False
+            for cmd in ["git apply /test_patch.diff", "git apply --reject /test_patch.diff",
+                         "patch --batch --fuzz=5 -p1 -i /test_patch.diff"]:
+                if container.exec_run(cmd, workdir="/testbed").exit_code == 0:
+                    applied = True
+                    break
+            if not applied:
+                json.dump({"status": "test_patch_failed"}, open(rpt, "w"), indent=2)
+                print(f"  [FAIL] PR#{pr}: test_patch failed")
+                return None
+
+            eval_script = f"#!/bin/bash\nset -uxo pipefail\ncd /testbed\n: '{TEST_OUTPUT_START}'\n{test_cmd}\n: '{TEST_OUTPUT_END}'\n"
+            with open(ev_f, "w") as f:
+                f.write(eval_script)
+            subprocess.run(f"docker cp {ev_f} {container.id}:/eval.sh", shell=True)
+
+            # Run tests (buggy state — should have failures)
+            buggy_out, bto, _ = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=timeout)
+            (log_dir / "test_output.txt").write_text(buggy_out)
+            if bto:
+                json.dump({"timed_out": True, "timeout": timeout}, open(rpt, "w"), indent=2)
+                print(f"  [FAIL] PR#{pr}: timed out")
+                return None
+
+            # Apply fix patch
+            applied = False
+            for cmd in ["git apply /fix_patch.diff", "git apply --reject /fix_patch.diff",
+                         "patch --batch --fuzz=5 -p1 -i /fix_patch.diff"]:
+                if container.exec_run(cmd, workdir="/testbed").exit_code == 0:
+                    applied = True
+                    break
+            if not applied:
+                json.dump({"status": "fix_failed"}, open(rpt, "w"), indent=2)
+                print(f"  [FAIL] PR#{pr}: fix failed")
+                return None
+
+            # Run tests again (fixed state — should pass)
+            clean_out, cto, _ = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=timeout)
         (log_dir / "test_output_clean.txt").write_text(clean_out)
         (log_dir / "patch.diff").write_text(inst["patch"])
 

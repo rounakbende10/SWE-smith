@@ -20,6 +20,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -124,10 +125,10 @@ Respond in EXACTLY this JSON format, nothing else:
     "verdict_reason": "<one-line summary>"
 }}
 
-Set verdict to FAIL if specification_score >= 2 OR test_scope_score >= 2 OR other_issues == 1.
+Set verdict to FAIL if specification_score >= 3 OR test_scope_score >= 3 OR other_issues == 1.
 Otherwise set verdict to PASS.
 
-REMEMBER: Be conservative. When in doubt, REJECT."""
+REMEMBER: Only reject instances that are truly unusable — where the problem statement is incomprehensible or tests are completely unrelated to the described issue. Vague problem statements and implementation-specific tests are acceptable as long as an experienced engineer could reasonably find and fix the bug."""
 
 
 def grade_instance(instance: dict, model: str) -> dict:
@@ -152,29 +153,56 @@ def grade_instance(instance: dict, model: str) -> dict:
         fail_to_pass="\n".join(f2p),
     )
 
-    try:
-        response = completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            max_tokens=2000,
-        )
-        content = response.choices[0].message.content.strip()
-        start = content.find("{")
-        end = content.rfind("}")
-        if start >= 0 and end > start:
-            grading = json.loads(content[start:end+1])
-        else:
+    for attempt in range(3):
+        try:
+            response = completion(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=2000,
+            )
+            content = response.choices[0].message.content.strip()
+
+            # Try extracting JSON — handle markdown code blocks and nested braces
+            content = re.sub(r'^```(?:json)?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
+
+            # Find the outermost JSON object
+            depth = 0
+            start = None
+            for i, c in enumerate(content):
+                if c == '{':
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0 and start is not None:
+                        grading = json.loads(content[start:i+1])
+                        grading["instance_id"] = instance["instance_id"]
+                        grading["_cost"] = getattr(response, "_hidden_params", {}).get("response_cost", 0)
+                        # Override verdict — compute from scores, don't trust model's judgment
+                        spec = grading.get("specification_score", 0)
+                        test = grading.get("test_scope_score", 0)
+                        other = grading.get("other_issues", 0)
+                        grading["verdict"] = "FAIL" if (spec >= 3 or test >= 3 or other == 1) else "PASS"
+                        return grading
+
             grading = json.loads(content)
-        grading["instance_id"] = instance["instance_id"]
-        grading["_cost"] = getattr(response, "_hidden_params", {}).get("response_cost", 0)
-        return grading
-    except Exception as e:
-        return {
-            "instance_id": instance["instance_id"],
-            "error": str(e),
-            "verdict": "ERROR",
-        }
+            grading["instance_id"] = instance["instance_id"]
+            spec = grading.get("specification_score", 0)
+            test = grading.get("test_scope_score", 0)
+            other = grading.get("other_issues", 0)
+            grading["verdict"] = "FAIL" if (spec >= 3 or test >= 3 or other == 1) else "PASS"
+            return grading
+        except Exception as e:
+            if attempt == 2:
+                return {
+                    "instance_id": instance["instance_id"],
+                    "error": str(e),
+                    "verdict": "ERROR",
+                }
+            time.sleep(2)
 
 
 def main():

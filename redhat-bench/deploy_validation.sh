@@ -3,20 +3,23 @@
 # Incorporates all fixes: upstream repo fallback, Docker cleanup, 2 workers, no crash-on-failure.
 #
 # Usage:
-#   ./deploy_validation.sh deploy <repo_profile> <patches.json> <go|python|java> [--name pod-name] [--workers 2]
-#   ./deploy_validation.sh status [pod-name]
-#   ./deploy_validation.sh collect <pod-name>         # Pull results locally
-#   ./deploy_validation.sh issue-gen <pod-name>       # Run issue generation on completed validation
-#   ./deploy_validation.sh logs <pod-name>            # Tail validation logs
-#   ./deploy_validation.sh cleanup <pod-name>         # Docker cleanup on pod
-#   ./deploy_validation.sh delete <pod-name>          # Delete pod + PVC
+#   SWE-Smith synthetic bugs:
+#     ./deploy_validation.sh deploy <repo_profile> <patches.json> <go|python|java>
+#     ./deploy_validation.sh status [pod-name]
+#     ./deploy_validation.sh collect <pod-name>
+#     ./deploy_validation.sh issue-gen <pod-name>
+#
+#   PR pipeline (real PRs, no profiles needed):
+#     ./deploy_validation.sh pr-validate <pod-name> <prs.jsonl> <go|python|java> [timeout]
+#     ./deploy_validation.sh pr-status <pod-name>
+#     ./deploy_validation.sh pr-logs <pod-name>
+#     ./deploy_validation.sh pr-collect <pod-name> [output-dir]
 #
 # Examples:
 #   ./deploy_validation.sh deploy etcd-io__etcd.ec166e22 logs/bug_gen/etcd_lm_rewrite.json go
-#   ./deploy_validation.sh deploy quarkusio__quarkus.99a220ef logs/bug_gen/quarkus_lm_rewrite.json java
-#   ./deploy_validation.sh deploy ansible__ansible.a5b61bc6 logs/bug_gen/ansible_lm_rewrite.json python
-#   ./deploy_validation.sh status
-#   ./deploy_validation.sh collect validate-etcd
+#   ./deploy_validation.sh pr-validate validate-go-lmrw-1 collected_prs.jsonl python 7200
+#   ./deploy_validation.sh pr-status validate-go-lmrw-1
+#   ./deploy_validation.sh pr-collect validate-go-lmrw-1 ./results
 
 set -uo pipefail
 
@@ -598,6 +601,107 @@ done
 " 2>&1
 }
 
+# ─── PR Pipeline ───
+
+cmd_pr_validate() {
+    local POD=${1:?Usage: pr-validate <pod-name> <prs.jsonl> <go|python|java> [--timeout 600]}
+    local PRS_FILE=${2:?Usage: pr-validate <pod-name> <prs.jsonl> <go|python|java>}
+    local LANG=${3:?Usage: pr-validate <pod-name> <prs.jsonl> <go|python|java>}
+    local TIMEOUT=${4:-600}
+
+    [ -f "$PRS_FILE" ] || die "File not found: $PRS_FILE"
+
+    local PR_PIPELINE_DIR="${SCRIPT_DIR}/pr_pipeline"
+    [ -f "$PR_PIPELINE_DIR/validate_prs.py" ] || die "validate_prs.py not found in $PR_PIPELINE_DIR"
+    [ -f "$PR_PIPELINE_DIR/auto_env.py" ] || die "auto_env.py not found in $PR_PIPELINE_DIR"
+
+    echo "Uploading PR pipeline scripts to $POD..."
+    oc cp "$PR_PIPELINE_DIR/validate_prs.py" "$NAMESPACE/$POD:/tmp/validate_prs.py" -c runner
+    oc cp "$PR_PIPELINE_DIR/auto_env.py" "$NAMESPACE/$POD:/tmp/auto_env.py" -c runner
+
+    echo "Uploading PR data ($PRS_FILE)..."
+    gzip -k -f "$PRS_FILE"
+    oc cp "${PRS_FILE}.gz" "$NAMESPACE/$POD:/tmp/batch.jsonl.gz" -c runner
+    oc exec "$POD" -c runner -n "$NAMESPACE" -- gunzip -f /tmp/batch.jsonl.gz
+    rm -f "${PRS_FILE}.gz"
+
+    local PR_COUNT
+    PR_COUNT=$(oc exec "$POD" -c runner -n "$NAMESPACE" -- wc -l /tmp/batch.jsonl 2>/dev/null | awk '{print $1}')
+    echo "Uploaded $PR_COUNT PRs"
+
+    echo "Starting PR validation (lang=$LANG, timeout=$TIMEOUT)..."
+    oc exec "$POD" -c runner -n "$NAMESPACE" -- bash -c "
+        pkill -9 -f validate_prs 2>/dev/null
+        export DOCKER_HOST=tcp://localhost:2375
+        export PYTHONPATH=/tmp
+        mkdir -p /workspace/SWE-smith/logs/v3_validation
+        nohup python3 -u /tmp/validate_prs.py /tmp/batch.jsonl \
+            --lang $LANG \
+            --output-dir /workspace/SWE-smith/logs/v3_validation \
+            --timeout $TIMEOUT \
+            > /tmp/v3_run.log 2>&1 &
+        echo \"Started PID: \$!\"
+    "
+
+    echo ""
+    echo "Monitor:"
+    echo "  $0 pr-status $POD"
+    echo "  $0 pr-logs $POD"
+    echo "  $0 pr-collect $POD"
+}
+
+cmd_pr_status() {
+    local POD=${1:?Usage: pr-status <pod-name>}
+    oc exec "$POD" -c runner -n "$NAMESPACE" -- bash -c '
+        v=$(grep -c "\[VALID\]" /tmp/v3_run.log 2>/dev/null)
+        p=$(grep -c "\[NO-BUG\]\|\[FAIL\]\|\[ERROR\]\|\[SKIP\]\|\[VALID\]" /tmp/v3_run.log 2>/dev/null)
+        running=$(ps aux | grep validate_prs | grep -v grep | grep -v defunct | wc -l)
+        echo "Valid: $v | Processed: $p | Running: $running"
+        echo ""
+        grep "\[VALID\]" /tmp/v3_run.log 2>/dev/null
+        echo ""
+        tail -3 /tmp/v3_run.log 2>/dev/null
+    ' 2>/dev/null
+}
+
+cmd_pr_logs() {
+    local POD=${1:?Usage: pr-logs <pod-name>}
+    oc exec "$POD" -c runner -n "$NAMESPACE" -- tail -30 /tmp/v3_run.log 2>/dev/null
+}
+
+cmd_pr_collect() {
+    local POD=${1:?Usage: pr-collect <pod-name>}
+    local OUT_DIR="${2:-./pr_results}"
+    mkdir -p "$OUT_DIR"
+
+    echo "Collecting valid PR instances from $POD..."
+    oc exec "$POD" -c runner -n "$NAMESPACE" -- python3 -c "
+import json, glob, os
+valid = []
+for rpt in glob.glob('/workspace/SWE-smith/logs/v3_validation/*/*/report.json'):
+    d = json.load(open(rpt))
+    f2p = d.get('FAIL_TO_PASS', [])
+    p2p = d.get('PASS_TO_PASS', [])
+    if not f2p or not p2p: continue
+    log_dir = os.path.dirname(rpt)
+    patch_path = os.path.join(log_dir, 'patch.diff')
+    valid.append({
+        'instance_id': os.path.basename(log_dir),
+        'repo': d.get('_repo', ''),
+        'base_commit': d.get('_base_commit', ''),
+        'patch': open(patch_path).read() if os.path.exists(patch_path) else '',
+        'test_patch': d.get('_test_patch', ''),
+        'FAIL_TO_PASS': f2p,
+        'PASS_TO_PASS': p2p,
+    })
+print(json.dumps(valid))
+" > "$OUT_DIR/valid_instances.json" 2>/dev/null
+
+    local COUNT
+    COUNT=$(python3 -c "import json; print(len(json.load(open('$OUT_DIR/valid_instances.json'))))" 2>/dev/null)
+    echo "Collected $COUNT valid instances to $OUT_DIR/valid_instances.json"
+}
+
 # ─── Logs ───
 
 cmd_logs() {
@@ -640,31 +744,42 @@ CMD=${1:-help}
 shift || true
 
 case "$CMD" in
-    deploy)    cmd_deploy "$@" ;;
-    status)    cmd_status "$@" ;;
-    collect)   cmd_collect "$@" ;;
-    issue-gen) cmd_issue_gen "$@" ;;
-    logs)      cmd_logs "$@" ;;
-    cleanup)   cmd_cleanup "$@" ;;
-    delete)    cmd_delete "$@" ;;
+    deploy)      cmd_deploy "$@" ;;
+    status)      cmd_status "$@" ;;
+    collect)     cmd_collect "$@" ;;
+    issue-gen)   cmd_issue_gen "$@" ;;
+    logs)        cmd_logs "$@" ;;
+    cleanup)     cmd_cleanup "$@" ;;
+    delete)      cmd_delete "$@" ;;
+    pr-validate) cmd_pr_validate "$@" ;;
+    pr-status)   cmd_pr_status "$@" ;;
+    pr-logs)     cmd_pr_logs "$@" ;;
+    pr-collect)  cmd_pr_collect "$@" ;;
     *)
         echo "Usage: $0 <command> [args]"
         echo ""
-        echo "Commands:"
+        echo "SWE-Smith synthetic bugs:"
         echo "  deploy <repo> <patches.json> <go|python|java>  Deploy validation pod"
         echo "  status [pod-name]                               Show status of all/one pod"
         echo "  collect <pod-name>                              Pull results locally"
         echo "  issue-gen <pod-name>                            Run issue generation"
-        echo "  logs <pod-name>                                 Tail logs"
+        echo ""
+        echo "PR pipeline (real PRs, no profiles needed):"
+        echo "  pr-validate <pod> <prs.jsonl> <go|python|java> [timeout]  Run PR validation"
+        echo "  pr-status <pod>                                 Show valid/processed counts"
+        echo "  pr-logs <pod>                                   Tail PR validation logs"
+        echo "  pr-collect <pod> [output-dir]                   Collect valid instances"
+        echo ""
+        echo "General:"
+        echo "  logs <pod-name>                                 Tail setup/validation logs"
         echo "  cleanup <pod-name>                              Docker cleanup"
         echo "  delete <pod-name>                               Delete pod + PVC"
         echo ""
         echo "Examples:"
         echo "  $0 deploy etcd-io__etcd.ec166e22 logs/bug_gen/etcd_lm_rewrite.json go"
-        echo "  $0 deploy ansible__ansible.a5b61bc6 logs/bug_gen/ansible_lm_rewrite.json python"
-        echo "  $0 deploy quarkusio__quarkus.99a220ef logs/bug_gen/quarkus_lm_rewrite.json java"
-        echo "  $0 status"
-        echo "  $0 collect validate-etcd"
+        echo "  $0 pr-validate validate-go-lmrw-1 collected_prs.jsonl python 7200"
+        echo "  $0 pr-status validate-go-lmrw-1"
+        echo "  $0 pr-collect validate-go-lmrw-1 ./results"
         exit 1
         ;;
 esac
