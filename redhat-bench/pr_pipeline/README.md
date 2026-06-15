@@ -165,21 +165,29 @@ Yield = validated instances / collected PRs. Depends on test-code coupling.
 
 ## Running Locally with Docker
 
-Tested on macOS (Apple Silicon) and Linux (x86_64). Docker Desktop required.
+Tested on macOS (Apple Silicon) and Linux (x86_64). Requires Docker Desktop running — the pipeline uses it internally to build images and run containers (no manual Docker commands needed).
 
 ```bash
+# 0. Start Docker Desktop and verify it's running
+docker info > /dev/null 2>&1 || echo "Start Docker Desktop first!"
+
 cd pr_pipeline
 export GITHUB_TOKEN=$(gh auth token)
+pip install docker unidiff requests  # if not already installed
 
-# 1. Collect 3 PRs from a Go repo
+# 1. Collect PRs — queries GitHub API, no Docker needed
 echo '[{"repo": "openshift/router", "lang": "go"}]' > /tmp/repos.json
 python pipeline/collect_prs.py /tmp/repos.json /tmp/prs.jsonl --max-pulls 50 --max-instances 3
 
-# 2. Validate (builds Docker image, runs 0→1 check)
+# 2. Validate — this is where Docker is used
+#    Internally: docker build (image per commit) → docker run (container) → run tests → cleanup
 python pipeline/validate_prs.py /tmp/prs.jsonl --lang go --output-dir /tmp/results --timeout 900
 
-# 3. Generate Harbor tasks from validated instances
+# 3. Generate Harbor tasks — no Docker needed, just file generation
 python pipeline/generate_harbor.py --input /tmp/results/validated.json --output /tmp/harbor-output
+
+# 4. (Optional) Test a generated Harbor task with Harbor CLI
+harbor tasks start-env -p /tmp/harbor-output/task-0000
 ```
 
 **Platform notes:**
