@@ -206,18 +206,20 @@ def build_repo_image(owner, repo, pyver="312", py_image="python:3.12-bookworm", 
         os.makedirs(build_dir)
         shutil.copytree(pip_dir, os.path.join(build_dir, "pkgs"))
 
-        # Construct pip install command with detected extras
+        # Construct pip install command — try offline first, fall back to online
         if test_extras:
             extras_str = ",".join(test_extras)
-            install_cmd = (
+            install_offline = (
                 f'pip install --no-index --find-links=/pkgs /pkgs/*.whl && '
                 f'pip install --no-index --find-links=/pkgs -e ".[{extras_str}]"'
             )
+            install_online = f'pip install -e ".[{extras_str}]" && pip install pytest'
         else:
-            install_cmd = (
+            install_offline = (
                 f'pip install --no-index --find-links=/pkgs /pkgs/*.whl && '
                 f'pip install --no-index --find-links=/pkgs -e .'
             )
+            install_online = 'pip install -e ".[test,dev,testing,develop]" 2>/dev/null || pip install -e . && pip install pytest'
 
         sys_deps_str = " ".join(SYSTEM_DEPS)
         dockerfile = f"""FROM {py_image}
@@ -225,7 +227,7 @@ RUN apt-get update -qq && apt-get install -y -qq git {sys_deps_str} > /dev/null 
 COPY pkgs /pkgs
 RUN git clone https://github.com/{owner}/{repo} /testbed
 WORKDIR /testbed
-RUN {install_cmd}
+RUN ({install_offline}) || ({install_online})
 """
         with open(os.path.join(build_dir, "Dockerfile"), "w") as f:
             f.write(dockerfile)

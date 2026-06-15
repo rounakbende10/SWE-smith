@@ -1,0 +1,45 @@
+FROM fedora:39
+
+# PCP build + test dependencies
+RUN dnf install -y \
+    git gcc gcc-c++ make autoconf automake libtool \
+    qt5-qtbase-devel qt5-qtsvg-devel \
+    python3-devel python3-pip \
+    avahi-devel systemd-devel \
+    librados-devel librbd-devel \
+    cyrus-sasl-devel openssl-devel \
+    perl-ExtUtils-MakeMaker perl-JSON perl-YAML perl-Time-HiRes \
+    flex bison \
+    rsync patch diffutils \
+    bc time hostname net-tools procps-ng \
+    nmap-ncat socat \
+    valgrind strace gdb \
+    pcp pcp-testsuite python3-pcp \
+    && dnf clean all
+
+# Clone full PCP repo (need full history for per-commit checkouts)
+RUN git clone https://github.com/performancecopilot/pcp /testbed
+WORKDIR /testbed
+
+# Initial build from HEAD
+RUN ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
+    && make -j$(nproc) \
+    && make install
+
+# Sync qa directory to testsuite
+RUN rsync -a /testbed/qa/ /var/lib/pcp/testsuite/ --exclude='.git'
+
+# Build testsuite binaries
+RUN cd /var/lib/pcp/testsuite && make -C src -j$(nproc) || true
+
+# Setup PCP runtime
+RUN mkdir -p /run/pcp \
+    && /usr/libexec/pcp/lib/pmcd start \
+    && sleep 2 \
+    && cd /var/lib/pcp/pmdas/sample && echo pipe | ./Install \
+    && cd /var/lib/pcp/pmdas/simple && echo pipe | ./Install \
+    && /usr/libexec/pcp/lib/pmlogger start || true
+
+# Environment for qa tests
+ENV PCPQA_SYSTEMD=yes
+ENV PCP_SYSTEMDUNIT_DIR=/usr/lib/systemd/system

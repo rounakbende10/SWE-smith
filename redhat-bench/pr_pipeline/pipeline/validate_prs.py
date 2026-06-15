@@ -70,6 +70,52 @@ def parse_pytest_log(log):
     return sm
 
 
+def _is_qa_shell_repo(inst):
+    """Detect if this instance uses shell-based qa tests (e.g., PCP)."""
+    tp = inst.get("test_patch", "")
+    return "qa/" in tp and not any(tp.endswith(ext) for ext in [".py", ".go", ".java"])
+
+
+def _build_qa_test_cmd(inst):
+    """Build test command for PCP-style qa shell tests."""
+    tp = inst.get("test_patch", "")
+    test_nums = set()
+    for line in tp.split("\n"):
+        if line.startswith("diff --git"):
+            parts = line.split(" b/")
+            if len(parts) > 1:
+                path = parts[1].strip()
+                if "qa/" in path:
+                    # Extract test number: qa/756 → 756, qa/756.out → 756
+                    basename = os.path.basename(path).split(".")[0]
+                    if basename.isdigit():
+                        test_nums.add(basename)
+
+    if test_nums:
+        nums = " ".join(sorted(test_nums))
+        return (
+            f"cd qa && for n in {nums}; do "
+            f"echo \"QA_TEST_$n: $(if ./check $n 2>&1 | tail -1 | grep -q Passed; then echo PASS; else echo FAIL; fi)\"; "
+            f"done"
+        )
+    return "echo 'No qa tests found'"
+
+
+def parse_shell_qa_log(log):
+    """Parse PCP-style qa test output — check exit code and output comparison."""
+    sm = {}
+    for line in log.split("\n"):
+        m = re.match(r"^QA_TEST_(\d+):\s*(PASS|FAIL)", line)
+        if m:
+            sm[f"qa/{m.group(1)}"] = "PASSED" if m.group(2) == "PASS" else "FAILED"
+    if not sm:
+        if "PASSED" in log:
+            sm["qa_run"] = "PASSED"
+        elif "FAILED" in log or "Exit status" in log:
+            sm["qa_run"] = "FAILED"
+    return sm
+
+
 def parse_maven_log(log):
     sm = {}
     for line in log.split("\n"):
@@ -175,7 +221,7 @@ def build_image(owner, repo, commit, lang):
 
     dockerfile = (
         f"FROM {base_tag}\n"
-        f"RUN git checkout {commit} || (git fetch origin && git checkout {commit})\n"
+        f"RUN git checkout {commit} || (git fetch --unshallow origin 2>/dev/null; git fetch origin {commit} && git checkout {commit})\n"
         f"RUN {cfg['install_cmd']}\n"
     )
     df_path = f"/tmp/Dockerfile_v3_{commit[:8]}"
@@ -185,7 +231,7 @@ def build_image(owner, repo, commit, lang):
     try:
         r = subprocess.run(
             f"docker build -f {df_path} --platform linux/x86_64 --no-cache -t {tag} .",
-            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=120,
+            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=600,
         )
     except subprocess.TimeoutExpired:
         print(f"    BUILD TIMEOUT: {owner}/{repo} at {commit[:8]}")
@@ -225,6 +271,8 @@ def validate_instance(inst, lang, output_dir, timeout=600):
     cfg = LANG_CONFIG[lang]
     if lang == "go":
         test_cmd = get_go_test_packages(inst["test_patch"], inst["patch"], cfg["test_cmd"])
+    elif _is_qa_shell_repo(inst):
+        test_cmd = _build_qa_test_cmd(inst)
     else:
         test_cmd = cfg["test_cmd"]
 
@@ -331,7 +379,7 @@ def validate_instance(inst, lang, output_dir, timeout=600):
         (log_dir / "patch.diff").write_text(inst["patch"])
 
         # Compare results
-        parser = PARSERS[lang]
+        parser = parse_shell_qa_log if _is_qa_shell_repo(inst) else PARSERS[lang]
         bsm = parser(buggy_out)
         csm = parser(clean_out) if not cto else {}
 

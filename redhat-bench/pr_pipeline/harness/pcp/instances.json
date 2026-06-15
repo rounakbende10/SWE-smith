@@ -1,0 +1,98 @@
+[
+  {
+    "instance_id": "performancecopilot__pcp.pr_2586_v3",
+    "base_commit": "1f4bcc34815b191945e8c09bb7f27579e6da380c",
+    "test_nums": [
+      "1671"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh 1f4bcc34815b191945e8c09bb7f27579e6da380c /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 1671",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2577_v3",
+    "base_commit": "704b93c3bb5062ff885be8aedbe849053ec7205c",
+    "test_nums": [
+      "987"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh 704b93c3bb5062ff885be8aedbe849053ec7205c /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 987",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2570_v3",
+    "base_commit": "87e917f67a7061e868c42f78d5e51d167e340f29",
+    "test_nums": [
+      "1397"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh 87e917f67a7061e868c42f78d5e51d167e340f29 /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 1397",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2558_v3",
+    "base_commit": "cfa48f508fe83be9c9a63010ddac44fe650c2d98",
+    "test_nums": [
+      "1397"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh cfa48f508fe83be9c9a63010ddac44fe650c2d98 /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 1397",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2386_v3",
+    "base_commit": "0833bef337f556670632f2458b603a86a5a2b670",
+    "test_nums": [
+      "1540"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh 0833bef337f556670632f2458b603a86a5a2b670 /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 1540",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2369_v3",
+    "base_commit": "ab10ad194040020f1f0112f795bdf4f8b94aff4e",
+    "test_nums": [
+      "1397"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh ab10ad194040020f1f0112f795bdf4f8b94aff4e /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 1397",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2357_v3",
+    "base_commit": "f5f90973836296d65d902e88f64ca06bc7b6108d",
+    "test_nums": [
+      "656"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh f5f90973836296d65d902e88f64ca06bc7b6108d /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 656",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  },
+  {
+    "instance_id": "performancecopilot__pcp.pr_2290_v3",
+    "base_commit": "ac67927bd306b828e7e81d4f9c3e6a4e9c66fe54",
+    "test_nums": [
+      "1540"
+    ],
+    "setup_cmd": "/harness/setup_pcp.sh ac67927bd306b828e7e81d4f9c3e6a4e9c66fe54 /test_patch.diff",
+    "eval_cmd": "/harness/eval_pcp.sh 1540",
+    "image": "pcp-harness:latest",
+    "privileged": true,
+    "timeout": 1200
+  }
+]
