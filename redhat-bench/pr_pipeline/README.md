@@ -163,6 +163,31 @@ For PCP/C repos, use `configs/pcp_repos.json` and the custom harness in `harness
 
 Yield = validated instances / collected PRs. Depends on test-code coupling.
 
+## Running Locally with Docker
+
+Tested on macOS (Apple Silicon) and Linux (x86_64). Docker Desktop required.
+
+```bash
+cd pr_pipeline
+export GITHUB_TOKEN=$(gh auth token)
+
+# 1. Collect 3 PRs from a Go repo
+echo '[{"repo": "openshift/router", "lang": "go"}]' > /tmp/repos.json
+python pipeline/collect_prs.py /tmp/repos.json /tmp/prs.jsonl --max-pulls 50 --max-instances 3
+
+# 2. Validate (builds Docker image, runs 0→1 check)
+python pipeline/validate_prs.py /tmp/prs.jsonl --lang go --output-dir /tmp/results --timeout 900
+
+# 3. Generate Harbor tasks from validated instances
+python pipeline/generate_harbor.py --input /tmp/results/validated.json --output /tmp/harbor-output
+```
+
+**Platform notes:**
+- **Go repos**: work on both ARM64 and x86_64 (Go cross-compiles natively)
+- **Python repos**: `auto_env.py` downloads x86_64 wheels, so validation needs `--platform linux/amd64` on ARM Macs or an x86_64 machine
+- **PCP (C) repos**: use the custom harness in `harness/pcp/`, requires `--privileged` Docker
+- **Timeout**: Go compilation on emulated x86 (ARM Mac) is 3-5x slower — use `--timeout 900`
+
 ## Running on OpenShift / NERC
 
 ```bash

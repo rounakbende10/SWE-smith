@@ -10,7 +10,7 @@ Usage:
 
 Requires:
     pip install docker unidiff
-    pip install swesmith  (for exec_run_with_timeout and constants)
+    
     Docker daemon running (local or DOCKER_HOST for DinD)
 """
 import argparse
@@ -22,8 +22,26 @@ import sys
 from pathlib import Path
 
 import docker
-from swesmith.constants import TEST_OUTPUT_START, TEST_OUTPUT_END
-from swesmith.harness.utils import exec_run_with_timeout
+TEST_OUTPUT_START = ">>>>> Start Test Output"
+TEST_OUTPUT_END = ">>>>> End Test Output"
+def exec_run_with_timeout(container, cmd, timeout=60):
+    """Run a command in a Docker container with timeout."""
+    import threading
+    result = {"output": "", "timed_out": False, "exit_code": -1}
+    def _run():
+        try:
+            r = container.exec_run(cmd, demux=True)
+            stdout = (r.output[0] or b"").decode("utf-8", errors="replace")
+            result["output"] = stdout
+            result["exit_code"] = r.exit_code
+        except Exception as e:
+            result["output"] = str(e)
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        result["timed_out"] = True
+    return result["output"], result["timed_out"], result["exit_code"]
 
 try:
     from unidiff import PatchSet
@@ -154,7 +172,7 @@ def get_go_test_packages(test_patch, patch, base_cmd):
 # ── Core logic ──
 
 try:
-    from auto_env import build_repo_image
+    import sys; sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'harness', 'python')); from auto_env import build_repo_image
 except ImportError:
     build_repo_image = None
 
@@ -182,7 +200,9 @@ def build_base_image(owner, repo, lang):
         f"WORKDIR /testbed\n"
         f"RUN {cfg['install_cmd']}\n"
     )
-    df_path = f"/tmp/Dockerfile_base_{owner}_{repo}"
+    build_ctx = f"/tmp/docker_build_{owner}_{repo}"
+    os.makedirs(build_ctx, exist_ok=True)
+    df_path = f"{build_ctx}/Dockerfile"
     with open(df_path, "w") as f:
         f.write(dockerfile)
 
@@ -190,8 +210,8 @@ def build_base_image(owner, repo, lang):
     print(f"    Building base image for {owner}/{repo}...")
     try:
         r = subprocess.run(
-            f"docker build -f {df_path} --platform linux/x86_64 -t {tag} .",
-            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=build_timeout,
+            f"docker build -f {df_path} -t {tag} {os.path.dirname(df_path)}",
+            shell=True, capture_output=True, text=True, timeout=build_timeout,
         )
     except subprocess.TimeoutExpired:
         print(f"    BASE BUILD TIMEOUT: {owner}/{repo}")
@@ -224,14 +244,16 @@ def build_image(owner, repo, commit, lang):
         f"RUN git checkout {commit} || (git fetch --unshallow origin 2>/dev/null; git fetch origin {commit} && git checkout {commit})\n"
         f"RUN {cfg['install_cmd']}\n"
     )
-    df_path = f"/tmp/Dockerfile_v3_{commit[:8]}"
+    build_ctx = f"/tmp/docker_build_v3_{commit[:8]}"
+    os.makedirs(build_ctx, exist_ok=True)
+    df_path = f"{build_ctx}/Dockerfile"
     with open(df_path, "w") as f:
         f.write(dockerfile)
 
     try:
         r = subprocess.run(
-            f"docker build -f {df_path} --platform linux/x86_64 --no-cache -t {tag} .",
-            shell=True, capture_output=True, text=True, cwd="/tmp", timeout=600,
+            f"docker build -f {df_path} --no-cache -t {tag} {os.path.dirname(df_path)}",
+            shell=True, capture_output=True, text=True, timeout=600,
         )
     except subprocess.TimeoutExpired:
         print(f"    BUILD TIMEOUT: {owner}/{repo} at {commit[:8]}")
@@ -283,7 +305,7 @@ def validate_instance(inst, lang, output_dir, timeout=600):
     try:
         container = client.containers.create(
             image=tag, name=f"v3.{iid}", detach=True,
-            command="tail -f /dev/null", platform="linux/x86_64", mem_limit="10g",
+            command="tail -f /dev/null", mem_limit="10g",
         )
         container.start()
 
